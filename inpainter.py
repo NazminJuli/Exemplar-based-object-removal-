@@ -10,8 +10,11 @@ from skimage.filters import laplace
 from scipy.ndimage.filters import convolve
 from math import pi
 import cv2
+from PIL import Image
+
 
 class Inpainter():
+
     def __init__(self, image, mask, patch_size, plot_progress=False):
         self.image = image.astype('uint8')
         self.mask = mask.astype('uint8')
@@ -19,7 +22,7 @@ class Inpainter():
         self.plot_progress = plot_progress
 
         # Non initialized attributes
-        self.plot_image_path = '/home/kow/CutOutWiz/Projects/pythonProject/exemplar_inpainting/Improved-inpaint-object-remover-c9aaf60350fdce0abc4508c4bf26f30ef7fc33bb/Improved-inpaint-object-remover-c9aaf60350fdce0abc4508c4bf26f30ef7fc33bb/resources'  # 中间文件保存路径
+        self.plot_image_path = '/home/kow/CutOutWiz/Projects/pythonProject/exemplar_inpainting/Improved-inpaint-object-remover-c9aaf60350fdce0abc4508c4bf26f30ef7fc33bb/Improved-inpaint-object-remover-c9aaf60350fdce0abc4508c4bf26f30ef7fc33bb/resources/output/'
         self.working_image = None
         self.working_mask = None
         self.front = None
@@ -34,7 +37,7 @@ class Inpainter():
         self.y = None
         self.h = None
         self.w = None
-        # imshow(self.image)
+        self.pixel_extension = 5        # imshow(self.image)
         # # imshow(self.new_mask_patch)
         # skimage.io.show()
 
@@ -70,6 +73,13 @@ class Inpainter():
         # print("now generate result gif")
         # os.system('convert -delay 30 -loop 0 ' + self.plot_image_path + '*.jpg ' + self.plot_image_path + 'result.gif')
         print('Took %f seconds to complete' % (time.time() - start_time))
+        self.working_image[self.y - self.pixel_extension: self.y + self.pixel_extension + self.h, self.x - self.pixel_extension: self.x + self.w + self.pixel_extension] = self.new_source_patch_copy
+        # bg = np.copy(self.working_image)
+        # bg = Image.fromarray(bg.astype('uint8'), 'RGB')
+        # #y - 7: y + h + 7, x - 7: x + w + 7
+        # ROI = self.working_image[self.y - 7: self.y + self.h + 7, self.x - 7: self.x + self.w + 7]
+        # bg.paste(self.new_source_patch_copy, ROI[0][0], ROI[0][1])
+        # bg.save('final.jpg')
         return self.working_image
 
     def _validate_inputs(self):
@@ -125,7 +135,7 @@ class Inpainter():
         self.working_image = np.copy(self.image)
         self.working_mask = np.copy(self.mask)
 
-        self.new_source_patch, self.new_mask_patch, self.x, self.y, self.h, self.w = self.new_find_source_patch()
+        self.new_source_patch, self.new_mask_patch, self.x, self.y, self.w, self.h = self.new_find_source_patch()
 
         height_new, width_new = self.new_source_patch_copy.shape[:2]
         print("new mask size:", self.new_mask_patch.shape)
@@ -211,7 +221,7 @@ class Inpainter():
         # self.data = np.sqrt(normal_gradient[:, :, 0] ** 2 + normal_gradient[:, :, 1] ** 2) + 0.0001
         # To be sure to have a greater than 0 data
 
-        self.data = np.abs(normal_gradient[:, :, 0] + normal_gradient[:, :, 1]) + 0.0001
+        self.data = np.abs(normal_gradient[:, :, 0] + normal_gradient[:, :, 1]) + 0.00001
         # To be sure to have a greater than 0 data
         return gradient
 
@@ -273,7 +283,6 @@ class Inpainter():
 
     def _structure_tensor(self, gradient):
         height, width = gradient.shape[1:]
-
         h = np.zeros([height, width])
         # ro = 0.2
         ro = 0.2
@@ -283,6 +292,7 @@ class Inpainter():
                 str_tensor = np.array([[gradient[0, i, j]*gradient[0, i, j], gradient[0, i, j]*gradient[1, i, j]],
                                        [gradient[0, i, j]*gradient[1, i, j], gradient[1, i, j]*gradient[1, i, j]]])\
                                        / (2*pi*ro**2)*np.exp(-(i**2+j**2)/(2*ro**2))
+
                 eigenvalue, featurevector = np.linalg.eig(str_tensor)
                 h[i, j] = (eigenvalue[0] - eigenvalue[1])**2
                 self.lamda[i, j, :] = eigenvalue
@@ -315,17 +325,19 @@ class Inpainter():
         # # imshow(mask_copy)
         # skimage.io.show()
         for c in cnts:
-            (x, y, w, h) = cv2.boundingRect(c)
-            print(x,y,w,h)
-            bbox = x, y, x + w, y + h
+            (self.x, self.y, self.w, self.h) = cv2.boundingRect(c)
+            print(self.x, self.y, self.w, self.h)
+            bbox = self.x, self.y, self.x + self.w, self.y + self.h
             col_min, col_max = bbox[3] + 3, bbox[1] - 3
             row_min, row_max = bbox[0] - 3, bbox[2] + 3
             # rect = cv2.rectangle(self.working_image, (row_min, col_min), (row_max, col_max), (255, 255, 255), 1)
-            new_source_patch = image_copy[y-7:y+h+7, x-7:x+w+7]
+            new_source_patch = image_copy[self.y-self.pixel_extension:self.y+self.h+self.pixel_extension, self.x-self.pixel_extension:self.x+self.w+self.pixel_extension]
             self.new_source_patch_copy = new_source_patch
 
-            new_mask_patch = mask_copy[y-7:y+h+7, x-7:x+w+7]
-            new_mask_patch = cv2.merge([new_mask_patch, new_mask_patch, new_mask_patch])
+            new_mask_patch = mask_copy[self.y-self.pixel_extension:self.y+self.h+self.pixel_extension, self.x-self.pixel_extension:self.x+self.w+self.pixel_extension]
+            new_mask_patch = cv2.merge([new_mask_patch, new_mask_patch, new_mask_patch]) # 3 mode generate of mask
+
+            # on basis of mask, generate original patch from bitwise_OR
             masked_and = cv2.bitwise_or(new_source_patch, new_mask_patch)
             # masked_and = cv2.bitwise_(masked_and)
             new_source_patch = masked_and.copy()
@@ -335,9 +347,9 @@ class Inpainter():
             print(new_source_patch.shape,'sp....')
             # cv2.imwrite('new.png', new_source_patch)
             # cv2.imwrite('new_mask.png', new_mask_patch)
-            imsave('new.png', self.new_source_patch_copy)
-            imsave('new_mask.png', new_mask_patch)
-            return new_source_patch, new_mask_patch, x, y, w, h
+            # imsave('new.png', self.new_source_patch_copy)
+            # imsave('new_mask.png', new_mask_patch)
+            return new_source_patch, new_mask_patch, self.x, self.y, self.w, self.h
             # cv2.imshow('xx', new_source_patch)
             # cv2.waitKey(0)
 
@@ -404,7 +416,6 @@ class Inpainter():
 
         new_data = source_data * rgb_mask + target_data * (1 - rgb_mask)
 
-
         # inpaint with new data..........
         self._copy_to_patch(self.new_source_patch_copy, target_patch, new_data)
         self._copy_to_patch(self.new_mask_patch, target_patch, 0)
@@ -440,7 +451,6 @@ class Inpainter():
             ]
         ]
         return patch
-
 
     def _calc_patch_difference(self, image, target_patch, source_patch):
         mask = 1 - self._patch_data(self.new_mask_patch, target_patch)
